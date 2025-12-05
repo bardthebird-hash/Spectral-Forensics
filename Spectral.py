@@ -94,6 +94,34 @@ TabPane {
     background: #0d1117;
 }
 
+/* CRITICAL FIX: Ensure ALL tool views take full height */
+FileInspector, ProcessView, NetworkView, RemoteUplink, TimelineAnalyzer, PersistenceHunter, LogSentinel, SystemRecon, CaseReportView {
+    height: 100%;
+    width: 100%;
+    display: block;
+    overflow-y: auto; 
+}
+
+/* SSH Form Grid Layout */
+#ssh-grid {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+    height: auto;
+    margin-bottom: 1;
+    background: #0d1117;
+    border: solid #003300;
+    padding: 1;
+}
+
+#ssh-cmd {
+    column-span: 2;
+}
+
+#btn-ssh-exec {
+    column-span: 2;
+}
+
 /* Widget Styles */
 .info-box {
     border: solid #00ff41;
@@ -110,6 +138,13 @@ TabPane {
     width: 100%;
     padding-left: 1;
     margin-bottom: 1;
+}
+
+.instruction-text {
+    color: #8b949e;
+    text-style: italic;
+    margin-bottom: 1;
+    padding-left: 1;
 }
 
 DataTable {
@@ -217,6 +252,7 @@ class ProcessView(Static):
     """Live Process Monitor."""
     def compose(self) -> ComposeResult:
         yield Label("LIVE PROCESS TABLE", classes="data-header")
+        yield Label("Monitor currently running applications. High memory usage or strange names can indicate malware.", classes="instruction-text")
         yield Button("Refresh Processes", id="btn-refresh-proc")
         yield DataTable(id="proc-table")
 
@@ -255,6 +291,7 @@ class NetworkView(Static):
     """Live Network Monitor."""
     def compose(self) -> ComposeResult:
         yield Label("ACTIVE CONNECTIONS", classes="data-header")
+        yield Label("Monitor active network sockets. Look for connections to unknown IP addresses.", classes="instruction-text")
         yield Button("Refresh Connections", id="btn-refresh-net")
         yield DataTable(id="net-table")
 
@@ -290,11 +327,13 @@ class RemoteUplink(Static):
     """SSH Client."""
     def compose(self) -> ComposeResult:
         yield Label("REMOTE UPLINK (SSH)", classes="data-header")
+        yield Label("Connect to remote headless servers to run forensic commands.", classes="instruction-text")
+        # Grid layout is defined in CSS #ssh-grid
         with Grid(id="ssh-grid"):
             yield Input(placeholder="Hostname/IP", id="ssh-host")
             yield Input(placeholder="Username", id="ssh-user")
             yield Input(placeholder="Password", id="ssh-pass", password=True)
-            yield Input(placeholder="Command", id="ssh-cmd")
+            yield Input(placeholder="Command (e.g., uname -a)", id="ssh-cmd")
             yield Button("Execute Command", id="btn-ssh-exec")
         yield Log(id="ssh-log")
 
@@ -342,6 +381,7 @@ class EntropyAnalyzer(Static):
     
     def compose(self) -> ComposeResult:
         yield Label("ENTROPY ANALYSIS (Encryption Detector)", classes="data-header")
+        yield Label("Detects if a file is encrypted/packed. High values (>7.0) indicate high randomness (Encryption).", classes="instruction-text")
         yield Label("0.0 = Organized | 8.0 = Random/Encrypted", id="entropy-scale")
         yield ProgressBar(total=8.0, show_eta=False, id="entropy-bar")
         yield Static(id="entropy-val")
@@ -391,6 +431,7 @@ class PatternHunter(Static):
     
     def compose(self) -> ComposeResult:
         yield Label("IOC PATTERN HUNTER", classes="data-header")
+        yield Label("Scans the file for Indicators of Compromise (IOCs) like IPs, Emails, and URLs.", classes="instruction-text")
         yield SelectionList(
             ("IPv4 Addresses", "ipv4"),
             ("Email Addresses", "email"),
@@ -450,6 +491,7 @@ class TimelineAnalyzer(Static):
     
     def compose(self) -> ComposeResult:
         yield Label("TIMELINE RECONSTRUCTION", classes="data-header")
+        yield Label("Recursively scans a directory to find files modified recently. Useful for seeing 'what changed' on a system.", classes="instruction-text")
         yield Input(placeholder="Path to scan (e.g. /var/log or /home)", id="timeline-path")
         yield Button("Build Timeline", id="btn-build-timeline")
         yield DataTable(id="timeline-table")
@@ -510,6 +552,7 @@ class PersistenceHunter(Static):
     
     def compose(self) -> ComposeResult:
         yield Label("PERSISTENCE HUNTER", classes="data-header")
+        yield Label("Scans common auto-start locations (Cron, Systemd, RC scripts) to find malware that survives reboot.", classes="instruction-text")
         yield Button("Scan Auto-Start Locations", id="btn-scan-persist")
         yield Log(id="persist-log")
 
@@ -573,6 +616,7 @@ class LogSentinel(Static):
     
     def compose(self) -> ComposeResult:
         yield Label("LOG SENTINEL", classes="data-header")
+        yield Label("Reads system logs and automatically highlights errors, sudo attempts, and warnings in red/yellow.", classes="instruction-text")
         yield Horizontal(
             Button("Syslog", id="btn-log-sys", classes="btn-small"),
             Button("Auth Log", id="btn-log-auth", classes="btn-small"),
@@ -635,6 +679,7 @@ class SystemRecon(Static):
     """Detailed System Information."""
     def compose(self) -> ComposeResult:
         yield Label("DEEP SYSTEM RECON", classes="data-header")
+        yield Label("Displays low-level kernel and hardware architecture information.", classes="instruction-text")
         yield Static(id="recon-data")
 
     def on_mount(self):
@@ -874,7 +919,7 @@ class SpectralForensicsApp(App):
             self.query_one("#report-view", CaseReportView).update_log()
 
     def on_mount(self) -> None:
-        self.title = "SPECTRAL // FORENSICS // v4.0 (POWER)"
+        self.title = "SPECTRAL // FORENSICS // v4.1 (FIXED)"
 
 if __name__ == "__main__":
     app = SpectralForensicsApp()
