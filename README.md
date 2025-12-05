@@ -27,6 +27,10 @@ Spectral Forensics requires Python 3.8+. It is recommended to run this on a Linu
 git clone [https://github.com/yourusername/spectral-forensics.git](https://github.com/yourusername/spectral-forensics.git)
 cd spectral-forensics
 
+1.5. This system is built to work with venv and pip. Run venv with:
+python3 -m venv [name of project]
+source [name of project]/bin/activate
+
 
 2. Install Dependencies
 
