@@ -67,20 +67,34 @@ TabbedContent {
 
 ContentSwitcher {
     background: #0d1117;
+    height: 1fr;
 }
 
 TabPane {
     padding: 1;
     background: #0d1117;
+    height: 100%;
 }
 
-/* Sidebar */
+/* Layout Containers */
 #sidebar {
     width: 25%;
     dock: left;
     height: 100%;
     border-right: solid #003300;
     background: #0d1117;
+}
+
+#main-content {
+    height: 100%;
+    width: 100%;
+    background: #0d1117;
+}
+
+FileInspector {
+    height: 100%;
+    width: 100%;
+    display: block;
 }
 
 /* Widget Styles */
@@ -610,6 +624,9 @@ class SpectralForensicsApp(App):
         yield Footer()
 
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        # User notification to confirm click registered
+        self.notify(f"Analyzing: {event.path.name}", title="File Selected")
+        
         inspector = self.query_one("#inspector", FileInspector)
         inspector.current_file = event.path.as_posix()
         inspector.query_one("#meta-container", VerticalScroll).remove_children()
@@ -620,7 +637,7 @@ class SpectralForensicsApp(App):
             self.query_one("#report-view", CaseReportView).update_log()
 
     def on_mount(self) -> None:
-        self.title = "SPECTRAL // FORENSICS // v3.0"
+        self.title = "SPECTRAL // FORENSICS // v3.1 (DEBUG)"
 
 if __name__ == "__main__":
     app = SpectralForensicsApp()
