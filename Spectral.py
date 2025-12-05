@@ -1,5 +1,5 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DirectoryTree, Static, DataTable, TabbedContent, TabPane, Log, Label, Button, Input, ProgressBar, SelectionList
+from textual.widgets import Header, Footer, DirectoryTree, Static, DataTable, TabbedContent, TabPane, Log, Label, Button, Input, ProgressBar, SelectionList, OptionList
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll, Grid
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -7,6 +7,7 @@ from textual.worker import get_current_worker
 from rich.text import Text
 from rich.panel import Panel
 from rich.align import Align
+from rich.syntax import Syntax
 import psutil
 import os
 import hashlib
@@ -18,6 +19,8 @@ import socket
 import math
 import re
 import platform
+import glob
+import time
 
 # --- Optional Imports for Advanced Features ---
 try:
@@ -91,12 +94,6 @@ TabPane {
     background: #0d1117;
 }
 
-FileInspector {
-    height: 100%;
-    width: 100%;
-    display: block;
-}
-
 /* Widget Styles */
 .info-box {
     border: solid #00ff41;
@@ -155,6 +152,11 @@ Log {
 
 ProgressBar {
     tint: #00ff41;
+}
+
+OptionList {
+    background: #0d1117;
+    border: solid #00ff41;
 }
 """
 
@@ -336,7 +338,7 @@ class RemoteUplink(Static):
         threading.Thread(target=_ssh_task, daemon=True).start()
 
 class EntropyAnalyzer(Static):
-    """Calculates Shannon Entropy to detect encryption/packing."""
+    """Calculates Shannon Entropy."""
     
     def compose(self) -> ComposeResult:
         yield Label("ENTROPY ANALYSIS (Encryption Detector)", classes="data-header")
@@ -351,7 +353,6 @@ class EntropyAnalyzer(Static):
         
         def _calc():
             try:
-                # Read first 1MB for speed
                 with open(file_path, 'rb') as f:
                     data = f.read(1024 * 1024) 
                 
@@ -442,6 +443,194 @@ class PatternHunter(Static):
 
         threading.Thread(target=_scan, daemon=True).start()
 
+# --- POWER MODULES (New in v4.0) ---
+
+class TimelineAnalyzer(Static):
+    """Reconstructs file activity timelines recursively."""
+    
+    def compose(self) -> ComposeResult:
+        yield Label("TIMELINE RECONSTRUCTION", classes="data-header")
+        yield Input(placeholder="Path to scan (e.g. /var/log or /home)", id="timeline-path")
+        yield Button("Build Timeline", id="btn-build-timeline")
+        yield DataTable(id="timeline-table")
+
+    def on_mount(self):
+        table = self.query_one("#timeline-table", DataTable)
+        table.add_columns("Timestamp", "Action", "File Path")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        if event.button.id == "btn-build-timeline":
+            path = self.query_one("#timeline-path", Input).value
+            if not path or not os.path.exists(path):
+                self.app.notify("Invalid path", severity="error")
+                return
+            self.build_timeline(path)
+
+    def build_timeline(self, start_path):
+        table = self.query_one("#timeline-table", DataTable)
+        table.clear()
+        self.app.notify(f"Scanning {start_path}...", title="Timeline Started")
+
+        def _scan():
+            events = []
+            # Limit scan depth/count for TUI performance
+            count = 0
+            max_files = 1000
+            
+            for root, dirs, files in os.walk(start_path):
+                for name in files:
+                    if count >= max_files: break
+                    try:
+                        filepath = os.path.join(root, name)
+                        stats = os.stat(filepath)
+                        # Add Modified Time
+                        events.append((stats.st_mtime, "MODIFIED", filepath))
+                        # Add Change Time
+                        events.append((stats.st_ctime, "CHANGED", filepath))
+                        count += 1
+                    except:
+                        pass
+                if count >= max_files: break
+            
+            # Sort by timestamp descending (newest first)
+            events.sort(key=lambda x: x[0], reverse=True)
+            
+            def _update_ui():
+                for ts, action, fp in events:
+                    dt = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+                    table.add_row(dt, action, fp)
+                self.app.notify(f"Processed {len(events)} events", title="Timeline Complete")
+
+            self.app.call_from_thread(_update_ui)
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+class PersistenceHunter(Static):
+    """Checks for auto-starting malware/scripts."""
+    
+    def compose(self) -> ComposeResult:
+        yield Label("PERSISTENCE HUNTER", classes="data-header")
+        yield Button("Scan Auto-Start Locations", id="btn-scan-persist")
+        yield Log(id="persist-log")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        if event.button.id == "btn-scan-persist":
+            self.scan_persistence()
+
+    def scan_persistence(self):
+        log = self.query_one("#persist-log", Log)
+        log.clear()
+        
+        locations = [
+            "/etc/crontab",
+            "/etc/rc.local",
+            "/etc/passwd", # Check for weird users
+        ]
+        # Dirs to list
+        dirs = [
+            "/etc/cron.d/",
+            "/etc/cron.daily/",
+            "/etc/cron.hourly/",
+            "/var/spool/cron/crontabs/",
+            "/etc/systemd/system/",
+            "/etc/init.d/"
+        ]
+
+        def _hunt():
+            self.app.call_from_thread(log.write, "[yellow]Scanning Cron & Init Systems...[/yellow]")
+            
+            # Check Files
+            for loc in locations:
+                if os.path.exists(loc):
+                    self.app.call_from_thread(log.write, f"\n[bold green]Found {loc}:[/bold green]")
+                    try:
+                        with open(loc, 'r') as f:
+                            # Read first few lines
+                            head = f.readlines()[:5]
+                            for line in head:
+                                if line.strip() and not line.startswith("#"):
+                                    self.app.call_from_thread(log.write, f"  {line.strip()}")
+                    except:
+                        self.app.call_from_thread(log.write, "  [red]Access Denied[/red]")
+
+            # Check Directories
+            for d in dirs:
+                if os.path.exists(d):
+                    self.app.call_from_thread(log.write, f"\n[bold green]Listing {d}:[/bold green]")
+                    try:
+                        files = os.listdir(d)
+                        for f in files[:10]: # Limit output
+                             self.app.call_from_thread(log.write, f"  [cyan]{f}[/cyan]")
+                        if len(files) > 10:
+                            self.app.call_from_thread(log.write, f"  ... and {len(files)-10} more")
+                    except:
+                        self.app.call_from_thread(log.write, "  [red]Access Denied[/red]")
+
+        threading.Thread(target=_hunt, daemon=True).start()
+
+class LogSentinel(Static):
+    """Advanced Log Viewer with Keyword Highlighting."""
+    
+    def compose(self) -> ComposeResult:
+        yield Label("LOG SENTINEL", classes="data-header")
+        yield Horizontal(
+            Button("Syslog", id="btn-log-sys", classes="btn-small"),
+            Button("Auth Log", id="btn-log-auth", classes="btn-small"),
+            Button("Dmesg", id="btn-log-dmesg", classes="btn-small"),
+            classes="btn-row"
+        )
+        yield Log(id="log-viewer")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        log_view = self.query_one("#log-viewer", Log)
+        log_view.clear()
+        
+        target = ""
+        if event.button.id == "btn-log-sys": target = "/var/log/syslog"
+        elif event.button.id == "btn-log-auth": target = "/var/log/auth.log"
+        elif event.button.id == "btn-log-dmesg": target = "dmesg"
+
+        self.read_log(target)
+
+    def read_log(self, target):
+        log_view = self.query_one("#log-viewer", Log)
+        
+        def _read():
+            lines = []
+            try:
+                if target == "dmesg":
+                    # Run dmesg command
+                    res = subprocess.run(["dmesg"], capture_output=True, text=True)
+                    lines = res.stdout.splitlines()[-100:] # Last 100 lines
+                elif os.path.exists(target):
+                    # Tail file
+                    with open(target, 'r', errors='ignore') as f:
+                        # diverse way to get last lines efficiently would be seek, but simple readlines is ok for now
+                        lines = f.readlines()[-100:]
+                else:
+                    self.app.call_from_thread(log_view.write, f"[red]Log file {target} not found or accessible.[/red]")
+                    return
+
+                for line in lines:
+                    line = line.strip()
+                    if not line: continue
+                    
+                    # Syntax Highlighting
+                    style = "white"
+                    if "error" in line.lower() or "failed" in line.lower():
+                        style = "bold red"
+                    elif "sudo" in line.lower() or "root" in line.lower():
+                        style = "bold yellow"
+                    elif "accepted" in line.lower() or "session opened" in line.lower():
+                        style = "green"
+                    
+                    self.app.call_from_thread(log_view.write, Text(line, style=style))
+            
+            except Exception as e:
+                self.app.call_from_thread(log_view.write, f"[red]Error reading log: {e}[/red]")
+
+        threading.Thread(target=_read, daemon=True).start()
+
 class SystemRecon(Static):
     """Detailed System Information."""
     def compose(self) -> ComposeResult:
@@ -453,7 +642,10 @@ class SystemRecon(Static):
         
     def refresh_data(self):
         uname = platform.uname()
-        boot_time = datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            boot_time = datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+        except:
+            boot_time = "Unknown"
         
         info = f"""
         [bold green]Node:[/bold green] {uname.node}
@@ -476,7 +668,10 @@ class FileInspector(Static):
                 with VerticalScroll(id="meta-container"):
                     yield Static(id="meta-view", expand=True)
                 yield Button("Add Metadata to Case", id="btn-case-meta")
-            with TabPane("Hex Dump", id="hexdump"):
+            with TabPane("Hex/Magic", id="hexdump"):
+                yield Label("Magic Bytes Header Check", classes="data-header")
+                yield Static(id="magic-view")
+                yield Label("Hex Dump (First 512B)", classes="data-header")
                 yield Static(id="hex-view", expand=True)
             with TabPane("Entropy", id="entropy"):
                 yield EntropyAnalyzer(id="entropy-analyzer")
@@ -507,7 +702,38 @@ class FileInspector(Static):
     def update_hex_view(self, file_path):
         try:
             with open(file_path, "rb") as f:
+                header = f.read(16)
+                f.seek(0)
                 chunk = f.read(512)
+            
+            # Magic Byte Check
+            hex_header = header.hex().upper()
+            magic_text = f"[bold white]Header Bytes:[/bold white] {hex_header}\n"
+            
+            # Simple common signatures
+            sigs = {
+                "FFD8FF": "JPEG Image",
+                "89504E47": "PNG Image",
+                "25504446": "PDF Document",
+                "4D5A": "Windows PE Executable (EXE/DLL)",
+                "7F454C46": "Linux ELF Executable",
+                "504B0304": "ZIP Archive"
+            }
+            
+            detected = "Unknown"
+            for sig, desc in sigs.items():
+                if hex_header.startswith(sig):
+                    detected = desc
+                    break
+            
+            if detected == "Unknown":
+                magic_text += f"[yellow]Signature:[/yellow] Unknown Binary format"
+            else:
+                magic_text += f"[bold green]Signature Detected:[/bold green] {detected}"
+                
+            self.query_one("#magic-view", Static).update(magic_text)
+
+            # Hex Dump
             hex_output = Text()
             for i in range(0, len(chunk), 16):
                 line_chunk = chunk[i:i+16]
@@ -517,8 +743,8 @@ class FileInspector(Static):
                 ascii_repr = "".join((chr(b) if 32 <= b < 127 else ".") for b in line_chunk)
                 hex_output.append(f"{ascii_repr}\n", style="white")
             self.query_one("#hex-view", Static).update(hex_output)
-        except Exception:
-            pass
+        except Exception as e:
+            self.query_one("#magic-view", Static).update(f"Error: {e}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-hash":
@@ -618,6 +844,12 @@ class SpectralForensicsApp(App):
                         yield NetworkView()
                     with TabPane("Remote Uplink", id="tab-ssh"):
                         yield RemoteUplink()
+                    with TabPane("Timeline", id="tab-timeline"):
+                        yield TimelineAnalyzer()
+                    with TabPane("Persistence", id="tab-persist"):
+                        yield PersistenceHunter()
+                    with TabPane("Log Sentinel", id="tab-logs"):
+                        yield LogSentinel()
                     with TabPane("Deep Recon", id="tab-recon"):
                         yield SystemRecon()
                     with TabPane("Case Report", id="tab-report"):
@@ -631,8 +863,10 @@ class SpectralForensicsApp(App):
         
         inspector = self.query_one("#inspector", FileInspector)
         inspector.current_file = event.path.as_posix()
-        # Removed dynamic child removal for stability
-        # inspector.query_one("#meta-container", VerticalScroll).remove_children()
+        # Also auto-fill Timeline path for convenience
+        timeline = self.query_one("#timeline-path", Input)
+        if timeline:
+            timeline.value = os.path.dirname(event.path.as_posix())
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated):
         # Refresh the report view when clicking the tab
@@ -640,7 +874,7 @@ class SpectralForensicsApp(App):
             self.query_one("#report-view", CaseReportView).update_log()
 
     def on_mount(self) -> None:
-        self.title = "SPECTRAL // FORENSICS // v3.1 (DEBUG)"
+        self.title = "SPECTRAL // FORENSICS // v4.0 (POWER)"
 
 if __name__ == "__main__":
     app = SpectralForensicsApp()
