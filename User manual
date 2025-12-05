@@ -1,0 +1,103 @@
+SPECTRAL FORENSICS // OPERATOR MANUAL
+
+Welcome to the Spectral Forensics System. This manual covers the operational modules of the v2.0 TUI.
+
+1. The Interface Layout
+
+The system is divided into two main zones:
+
+Sidebar (Left):
+
+System Target: Displays live CPU and RAM usage of the local machine.
+
+Navigator: A directory tree for browsing the file system.
+
+Main Content (Right):
+
+Contains the operational tabs (File System, Live Processes, Network, Remote Uplink, Case Report).
+
+2. File System Forensics
+
+Use this module to analyze specific files found via the Navigator in the sidebar.
+
+Select a File: Click any file in the sidebar tree.
+
+Metadata Tab:
+
+Displays file size, permissions (rwx), and timestamps (Created/Modified).
+
+Action: Click "Add Metadata to Case" to save these details to your report.
+
+Hex Dump Tab:
+
+Shows the first 512 bytes of the file in a classic Hex editor view.
+
+Useful for identifying file headers (magic numbers) to verify file types.
+
+Hashing Tab:
+
+Action: Click "Calculate Hashes" to generate MD5 and SHA256 fingerprints.
+
+Action: Click "Add Hash to Case" to save the hashes to your report.
+
+3. Live System Monitoring
+
+Live Processes Tab
+
+This tab helps you identify suspicious activity or resource hogs.
+
+View: Displays the top 50 processes sorted by Memory Usage.
+
+Columns: PID (Process ID), Name, User, Status, Memory %.
+
+Action: Click "Refresh Processes" to update the list instantly.
+
+Network Tab
+
+This tab detects active connections, useful for spotting malware beacons or unauthorized remote access.
+
+View: Lists open sockets and established connections.
+
+Columns: Protocol (TCP/UDP), Local Address, Remote Address, Connection Status, PID.
+
+Note: Some connections may show "Access Denied" if you do not run the script with sudo privileges.
+
+4. Remote Uplink (SSH)
+
+Use this module to connect to other machines (servers, headless Raspberry Pis) without leaving the dashboard.
+
+Input Fields:
+
+Hostname/IP: The IP address of the target.
+
+Username: SSH login user.
+
+Password: SSH login password (hidden input).
+
+Command: The Linux command you wish to execute (e.g., ls -la, cat /var/log/syslog).
+
+Action: Click "Execute Command".
+
+Output: The result (stdout) or error (stderr) will appear in the log window below the buttons.
+
+5. Reporting
+
+As you analyze the system, you collect evidence. This tab compiles it.
+
+Case Log: Displays a chronological list of all evidence you have "Added to Case" from other tabs.
+
+Generate Report:
+
+Click "Generate PDF Report".
+
+The system will create a file named forensic_report.pdf in the current directory.
+
+The PDF includes a timestamp, header, and formatted evidence blocks.
+
+Troubleshooting
+
+"Paramiko library not found": You are missing the SSH library. Run pip install paramiko.
+
+"FPDF library not installed": You are missing the PDF library. Run pip install fpdf2.
+
+Permission Errors: If you cannot read certain files or see network PIDs, try running the application with sudo python spectral_forensics.py.
