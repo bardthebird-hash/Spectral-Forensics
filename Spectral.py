@@ -473,7 +473,8 @@ class FileInspector(Static):
     def compose(self) -> ComposeResult:
         with TabbedContent(initial="metadata"):
             with TabPane("Metadata", id="metadata"):
-                yield VerticalScroll(id="meta-container")
+                with VerticalScroll(id="meta-container"):
+                    yield Static(id="meta-view", expand=True)
                 yield Button("Add Metadata to Case", id="btn-case-meta")
             with TabPane("Hex Dump", id="hexdump"):
                 yield Static(id="hex-view", expand=True)
@@ -498,10 +499,10 @@ class FileInspector(Static):
             [bold green]Permissions:[/bold green] {mode}
             [bold green]Modified:[/bold green] {datetime.datetime.fromtimestamp(stat_info.st_mtime)}
             """
-            self.query_one("#meta-container", VerticalScroll).mount(Static(meta_text))
+            self.query_one("#meta-view", Static).update(meta_text)
             self.update_hex_view(file_path)
         except Exception as e:
-            self.query_one("#meta-container", VerticalScroll).mount(Static(f"[red]Error: {e}[/red]"))
+            self.query_one("#meta-view", Static).update(f"[red]Error: {e}[/red]")
 
     def update_hex_view(self, file_path):
         try:
@@ -604,7 +605,8 @@ class SpectralForensicsApp(App):
                 yield Label("SYSTEM TARGET", classes="data-header")
                 yield SystemMonitor(classes="info-box")
                 yield Label("NAVIGATOR", classes="data-header")
-                yield DirectoryTree("./", id="tree-view")
+                # START AT ROOT DIRECTORY FOR FULL SYSTEM ACCESS
+                yield DirectoryTree("/", id="tree-view")
             
             with Vertical(id="main-content"):
                 with TabbedContent(initial="tab-files"):
@@ -629,7 +631,8 @@ class SpectralForensicsApp(App):
         
         inspector = self.query_one("#inspector", FileInspector)
         inspector.current_file = event.path.as_posix()
-        inspector.query_one("#meta-container", VerticalScroll).remove_children()
+        # Removed dynamic child removal for stability
+        # inspector.query_one("#meta-container", VerticalScroll).remove_children()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated):
         # Refresh the report view when clicking the tab
