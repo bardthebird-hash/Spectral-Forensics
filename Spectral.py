@@ -102,11 +102,8 @@ FileInspector, ProcessView, NetworkView, RemoteUplink, TimelineAnalyzer, Persist
     overflow-y: auto; 
 }
 
-/* SSH Form Grid Layout */
-#ssh-grid {
-    layout: grid;
-    grid-size: 2;
-    grid-gutter: 1;
+/* SSH Form Layout (Flexbox Style) */
+#ssh-connection-panel {
     height: auto;
     margin-bottom: 1;
     background: #0d1117;
@@ -114,12 +111,37 @@ FileInspector, ProcessView, NetworkView, RemoteUplink, TimelineAnalyzer, Persist
     padding: 1;
 }
 
-#ssh-cmd {
-    column-span: 2;
+.ssh-row {
+    height: auto;
+    width: 100%;
+    margin-bottom: 1;
 }
 
-#btn-ssh-exec {
-    column-span: 2;
+.ssh-input-half {
+    width: 1fr;
+    margin-right: 1;
+}
+
+.ssh-input-full {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#ssh-terminal {
+    height: 1fr; /* Takes remaining space */
+    border: solid #00ff41;
+    margin-bottom: 1;
+    background: #000000;
+}
+
+#ssh-command-row {
+    height: auto;
+    width: 100%;
+}
+
+#ssh-cmd {
+    width: 1fr;
+    margin-right: 1;
 }
 
 /* Widget Styles */
@@ -325,56 +347,130 @@ class NetworkView(Static):
 
 class RemoteUplink(Static):
     """SSH Client."""
+    
+    ssh_client = None
+    ssh_shell = None
+    is_connected = reactive(False)
+
     def compose(self) -> ComposeResult:
-        yield Label("REMOTE UPLINK (SSH)", classes="data-header")
-        yield Label("Connect to remote headless servers to run forensic commands.", classes="instruction-text")
-        # Grid layout is defined in CSS #ssh-grid
-        with Grid(id="ssh-grid"):
-            yield Input(placeholder="Hostname/IP", id="ssh-host")
-            yield Input(placeholder="Username", id="ssh-user")
-            yield Input(placeholder="Password", id="ssh-pass", password=True)
-            yield Input(placeholder="Command (e.g., uname -a)", id="ssh-cmd")
-            yield Button("Execute Command", id="btn-ssh-exec")
-        yield Log(id="ssh-log")
+        yield Label("REMOTE UPLINK (Interactive SSH)", classes="data-header")
+        yield Label("Persistent connection. Enter commands at the bottom to interact with the remote shell.", classes="instruction-text")
+        
+        # Connection Controls
+        with Vertical(id="ssh-connection-panel"):
+            with Horizontal(classes="ssh-row"):
+                yield Input(placeholder="Hostname/IP", id="ssh-host", classes="ssh-input-half")
+                yield Input(placeholder="Username", id="ssh-user", classes="ssh-input-half")
+            yield Input(placeholder="Password", id="ssh-pass", password=True, classes="ssh-input-full")
+            yield Button("Connect", id="btn-ssh-connect")
+            
+        # Terminal Window
+        yield Log(id="ssh-terminal")
+        
+        # Command Input
+        with Horizontal(id="ssh-command-row"):
+            yield Input(placeholder="Type command here and press Enter...", id="ssh-cmd")
+            yield Button("Send", id="btn-ssh-send")
+
+    def on_mount(self):
+        # Disable command input initially
+        self.query_one("#ssh-cmd", Input).disabled = True
+        self.query_one("#btn-ssh-send", Button).disabled = True
 
     def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "btn-ssh-exec":
-            self.run_ssh()
+        if event.button.id == "btn-ssh-connect":
+            self.toggle_connection()
+        elif event.button.id == "btn-ssh-send":
+            self.send_command()
 
-    def run_ssh(self):
-        log = self.query_one("#ssh-log", Log)
-        if not HAS_PARAMIKO:
-            log.write("[red]ERROR: 'paramiko' library not found. Install it to use SSH.[/red]")
-            return
+    def on_input_submitted(self, event: Input.Submitted):
+        if event.input.id == "ssh-cmd":
+            self.send_command()
 
+    def toggle_connection(self):
+        if self.is_connected:
+            self.disconnect()
+        else:
+            self.connect()
+
+    def connect(self):
         host = self.query_one("#ssh-host", Input).value
         user = self.query_one("#ssh-user", Input).value
         password = self.query_one("#ssh-pass", Input).value
-        cmd = self.query_one("#ssh-cmd", Input).value
+        log = self.query_one("#ssh-terminal", Log)
 
-        log.write(f"[yellow]Connecting to {host}...[/yellow]")
+        if not HAS_PARAMIKO:
+            log.write(Text.from_markup("[red]Paramiko not installed.[/red]"))
+            return
+
+        log.write(Text.from_markup(f"[yellow]Connecting to {host}...[/yellow]"))
         
-        def _ssh_task():
+        def _connect_thread():
             try:
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                client.connect(host, username=user, password=password, timeout=5)
+                self.ssh_client = paramiko.SSHClient()
+                self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.ssh_client.connect(host, username=user, password=password, timeout=10)
                 
-                stdin, stdout, stderr = client.exec_command(cmd)
-                output = stdout.read().decode()
-                error = stderr.read().decode()
+                # Start interactive shell
+                self.ssh_shell = self.ssh_client.invoke_shell()
+                self.is_connected = True
                 
-                if output:
-                    self.app.call_from_thread(log.write, f"[green]OUTPUT:[/green]\n{output}")
-                if error:
-                    self.app.call_from_thread(log.write, f"[red]ERROR:[/red]\n{error}")
+                # Update UI
+                self.app.call_from_thread(self.on_connected_ui)
                 
-                client.close()
-                self.app.call_from_thread(log.write, "[blue]Connection Closed.[/blue]")
+                # Start listener thread
+                threading.Thread(target=self.listen_to_shell, daemon=True).start()
+                
             except Exception as e:
-                self.app.call_from_thread(log.write, f"[red]Connection Failed: {e}[/red]")
+                self.app.call_from_thread(log.write, Text.from_markup(f"[red]Connection Failed: {e}[/red]"))
 
-        threading.Thread(target=_ssh_task, daemon=True).start()
+        threading.Thread(target=_connect_thread, daemon=True).start()
+
+    def on_connected_ui(self):
+        btn = self.query_one("#btn-ssh-connect", Button)
+        btn.label = "Disconnect"
+        # Using a class or style change would be better, but label change indicates state
+        
+        self.query_one("#ssh-terminal", Log).write(Text.from_markup("[green]Connected! Interactive session established.[/green]"))
+        
+        # Enable inputs
+        self.query_one("#ssh-cmd", Input).disabled = False
+        self.query_one("#btn-ssh-send", Button).disabled = False
+        self.query_one("#ssh-cmd", Input).focus()
+
+    def disconnect(self):
+        if self.ssh_client:
+            self.ssh_client.close()
+        self.ssh_client = None
+        self.ssh_shell = None
+        self.is_connected = False
+        
+        self.query_one("#btn-ssh-connect", Button).label = "Connect"
+        self.query_one("#ssh-terminal", Log).write(Text.from_markup("[yellow]Disconnected.[/yellow]"))
+        
+        self.query_one("#ssh-cmd", Input).disabled = True
+        self.query_one("#btn-ssh-send", Button).disabled = True
+
+    def listen_to_shell(self):
+        log = self.query_one("#ssh-terminal", Log)
+        while self.is_connected and self.ssh_shell:
+            try:
+                if self.ssh_shell.recv_ready():
+                    # Receive data from shell
+                    data = self.ssh_shell.recv(1024).decode('utf-8', errors='ignore')
+                    # Write to log (Textual Log writes lines, so this might break lines oddly but works for basic shell)
+                    self.app.call_from_thread(log.write, data)
+                time.sleep(0.1)
+            except:
+                break
+
+    def send_command(self):
+        cmd_input = self.query_one("#ssh-cmd", Input)
+        cmd = cmd_input.value
+        if self.ssh_shell:
+            # Send command + newline to shell
+            self.ssh_shell.send(cmd + "\n")
+            cmd_input.value = ""
 
 class EntropyAnalyzer(Static):
     """Calculates Shannon Entropy."""
@@ -456,7 +552,7 @@ class PatternHunter(Static):
             "mac": r"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
         }
         
-        log.write(f"[yellow]Scanning {os.path.basename(file_path)}...[/yellow]")
+        log.write(Text.from_markup(f"[yellow]Scanning {os.path.basename(file_path)}...[/yellow]"))
         
         def _scan():
             found_count = 0
@@ -468,19 +564,19 @@ class PatternHunter(Static):
                     regex = patterns[p_key]
                     matches = re.findall(regex, content)
                     if matches:
-                        log.write(f"\n[bold cyan]--- Found {len(matches)} {p_key.upper()}s ---[/bold cyan]")
+                        self.app.call_from_thread(log.write, Text.from_markup(f"\n[bold cyan]--- Found {len(matches)} {p_key.upper()}s ---[/bold cyan]"))
                         # Show unique only
                         for m in set(matches):
-                            log.write(str(m))
+                            self.app.call_from_thread(log.write, str(m))
                             found_count += 1
                     else:
-                        log.write(f"\nNo {p_key} found.")
+                        self.app.call_from_thread(log.write, f"\nNo {p_key} found.")
                         
                 if found_count == 0:
-                    log.write("\n[green]Clean scan. No patterns matched.[/green]")
+                    self.app.call_from_thread(log.write, Text.from_markup("\n[green]Clean scan. No patterns matched.[/green]"))
                     
             except Exception as e:
-                log.write(f"[red]Error reading file: {e}[/red]")
+                self.app.call_from_thread(log.write, Text.from_markup(f"[red]Error reading file: {e}[/red]"))
 
         threading.Thread(target=_scan, daemon=True).start()
 
@@ -580,12 +676,12 @@ class PersistenceHunter(Static):
         ]
 
         def _hunt():
-            self.app.call_from_thread(log.write, "[yellow]Scanning Cron & Init Systems...[/yellow]")
+            self.app.call_from_thread(log.write, Text.from_markup("[yellow]Scanning Cron & Init Systems...[/yellow]"))
             
             # Check Files
             for loc in locations:
                 if os.path.exists(loc):
-                    self.app.call_from_thread(log.write, f"\n[bold green]Found {loc}:[/bold green]")
+                    self.app.call_from_thread(log.write, Text.from_markup(f"\n[bold green]Found {loc}:[/bold green]"))
                     try:
                         with open(loc, 'r') as f:
                             # Read first few lines
@@ -594,20 +690,20 @@ class PersistenceHunter(Static):
                                 if line.strip() and not line.startswith("#"):
                                     self.app.call_from_thread(log.write, f"  {line.strip()}")
                     except:
-                        self.app.call_from_thread(log.write, "  [red]Access Denied[/red]")
+                        self.app.call_from_thread(log.write, Text.from_markup("  [red]Access Denied[/red]"))
 
             # Check Directories
             for d in dirs:
                 if os.path.exists(d):
-                    self.app.call_from_thread(log.write, f"\n[bold green]Listing {d}:[/bold green]")
+                    self.app.call_from_thread(log.write, Text.from_markup(f"\n[bold green]Listing {d}:[/bold green]"))
                     try:
                         files = os.listdir(d)
                         for f in files[:10]: # Limit output
-                             self.app.call_from_thread(log.write, f"  [cyan]{f}[/cyan]")
+                             self.app.call_from_thread(log.write, Text.from_markup(f"  [cyan]{f}[/cyan]"))
                         if len(files) > 10:
                             self.app.call_from_thread(log.write, f"  ... and {len(files)-10} more")
                     except:
-                        self.app.call_from_thread(log.write, "  [red]Access Denied[/red]")
+                        self.app.call_from_thread(log.write, Text.from_markup("  [red]Access Denied[/red]"))
 
         threading.Thread(target=_hunt, daemon=True).start()
 
@@ -652,7 +748,7 @@ class LogSentinel(Static):
                         # diverse way to get last lines efficiently would be seek, but simple readlines is ok for now
                         lines = f.readlines()[-100:]
                 else:
-                    self.app.call_from_thread(log_view.write, f"[red]Log file {target} not found or accessible.[/red]")
+                    self.app.call_from_thread(log_view.write, Text.from_markup(f"[red]Log file {target} not found or accessible.[/red]"))
                     return
 
                 for line in lines:
@@ -671,7 +767,7 @@ class LogSentinel(Static):
                     self.app.call_from_thread(log_view.write, Text(line, style=style))
             
             except Exception as e:
-                self.app.call_from_thread(log_view.write, f"[red]Error reading log: {e}[/red]")
+                self.app.call_from_thread(log_view.write, Text.from_markup(f"[red]Error reading log: {e}[/red]"))
 
         threading.Thread(target=_read, daemon=True).start()
 
